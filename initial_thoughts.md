@@ -53,3 +53,5 @@ Era - see above.
 Maybe we should take XCM into account here?
 
 Polkadot Vault should probably keep downloading whole metadata; it's relatively easy - easier than multiframe QRs for each transaction, and less confusing. It would still benefit greatly from this format due to metadata being checked on-chain; whole verifier system will go away.
+
+Versioning: header should have a version of the protocol, so that if critical vulnerability is found, we can revoke everything (old devices).
