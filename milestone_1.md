@@ -4,19 +4,22 @@ THIS IS A DRAFT
 
 ## 1.1. Publish refined requirements for protocol
 
-TODO
+The general idea is to send metadata as modular blocks (**metadata units**) along with their hashes as proofs of their authenticity from hot device to cold device; in cold device hashes should be included into signature so that the chain consensus would be checking validity of metadata as seen by cold device.
 
-All metadata blocks should be atomic hashable objects with their hashes presented in arbitrary order.
+- All metadata units should be atomic hashable objects with their hashes presented in arbitrary order.
 
-Hash function should be already in Substrate/cold device codebase
+- Metadata could be sent in several subsets that could be overlapping and/or sent several times in arbitrary order
 
-Hash function should be cryptographically strong.
+- Hash function should be already in Substrate/cold device codebase
 
-Ordering of metadata blocks should be performed based on their content.
+- Hash function should be cryptographically strong.
 
-Various levels of metadata stripping should be available per decision of cold device design.
+- Ordering of metadata blocks should be performed based on their content.
 
-Unused variants should be stripped from enum-like objects.
+- Various levels of metadata stripping should be available per decision of cold device design.
+
+- Unused variants should be stripped from enum-like objects.
+Note: maybe it could be avoided?
 
 Note that it follows that each metadata unit would be hashed with `blake2` or `blake3`
 
@@ -77,4 +80,12 @@ These sizes all fall within the same range, so there is not much to win by repla
 ### Proposed solution
 
 We propose to use Benaloh/de Mare scheme with GF(2^256) as hash function, store accumulator value on chain for signature checks and use it to force hot side to prove, that it can indeed factor a publicly known number into metadata unit hash.
+
+The basic flow of the protocol thus is following. Accumulator storing all metadata unit hashes is computed on runtime build time and its value is stored on chain (some seeding value with, for example, genesis hash, or out-of-metadata information - such as units - could also be included). When hot client plans to transmit metadata section to cold device, it computes accumulator value excluding hashes of inuts in that metadata section. This value is transmitted alongside metadata section to effectively prove that hot device does indeed use the valid metadata in transmission, and the cold device could use every metadata section packet to compute complete metadata accumulator value and include it into signing sponge function for check on-chain.
+
+This approach gives maximum freedom of what particular signing design considers desieable amount of metadata to be transmitted - for example, we could even give docs space in metadata units. Sections of metadata could be transmitted repeatedly making paging possible.
+
+For this scheme, any strong asymmetric hashigh function with quasicommutative property could be used. We propose to use GF(2^256) as it is already available in one way or another in all software and firmware related to this project; also it could be used without secret management that could be required in similar schemes like RSA. Of course, other hash functions could be considered here, suggestions welcome.
+
+Proposed approach would result in increase of each contiguous payload sent to cold device by length of hash, that is, 32 bytes. If units are sent one by one, it means that their size would increase from around 100 bytes to 132 bytes, and this is worst-case scenario.
 
