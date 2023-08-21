@@ -1,8 +1,24 @@
 # Milestone 1
 
+THIS IS A DRAFT
+
 ## 1.1. Publish refined requirements for protocol
 
 TODO
+
+All metadata blocks should be atomic hashable objects with their hashes presented in arbitrary order.
+
+Hash function should be already in Substrate/cold device codebase
+
+Hash function should be cryptographically strong.
+
+Ordering of metadata blocks should be performed based on their content.
+
+Various levels of metadata stripping should be available per decision of cold device design.
+
+Unused variants should be stripped from enum-like objects.
+
+Note that it follows that each metadata unit would be hashed with `blake2` or `blake3`
 
 ## 1.2. Publish first draft of mock shortened metadata for parallel development
 
@@ -20,13 +36,45 @@ The only part missing there is information on proofing that might be needed in s
 
 ## 1.3. Estimate shortened metadata size frames based on information theory
 
-TODO
+The current metadata size is around `S_original = 0.5 MB`. Most of this structure is type registry, with other components size being relatively negligible.
+
+Type registry for Westend currently contains around `N_records_original = 800` records, with `N_records_compound = 300` of those being compound enums and the rest `N_records_primitive = 500`. Per variant stripping requirement and with average number of variants being on the order of `N_variants = 10`, this results in `N_units_total = N_records_primitive + N_records_compound * N_variants = 500 + 300 * 10 = 3500` units. Let's use 5000..10000 as safe reasonable pessimistic estimate.
+
+An average unit contains roughly `S_unit = 100 bytes` of data after docs are stripped (as measured in tests).
+
+Reasonable hash size H256 is `S_hash = 32 bytes`. Metadata for hash addressing should generally fit in `S_hash_meta = 1 byte`
+
+Thus, total metadata separated into units would occupy `S_units_total = 500..1000kB` (agrees with original metadata size). Full set of metadata hashes would occupy `S_hashes_total = 150..350 kB`, and when constructed into Merkle tree it would result in 'D_total = 12..13` layers.
+
+Typical metadata for a transaction would reasonably require `N_units_per_tx = 10..30` units.
+
+Transfer of one unit with Merkle tree proof would require transfer of unit its content with S_unit data alongside with its neighbouring Merkle vertex set. Transfer of the first unit would require full depth of leaves D_total to be transferred along with the data; all subsequent units would be diverging from previously sent ones thus resulting in smaller data chunks. With `N_units_per_tx << N_units_total`, we could estimate that point of divergence would be uniformly distributed in `1..D_total`, thus total amount of hashes sent would be roughly `N_hashes_per_tx_merkle = N_units_per_tx * (D_total/2) = 60..200`, or `S_hashes_per_tx_merkle = N_hashes_per_tx_merkle * (S_hash + S_hash_meta) ~= 2000..7000 bytes`. This, however, does not take into account the fact that embedded devices would be struggling to store fractions of hash table simultaneously while computing these hashes, storing metadata units, and decoding transaction. In some implementation, this would result in double transfer requirement (which is also close to worst-case estimate where units are distributed as sparsely as possible in the tree) `N_hashes_per_tx_merkle_max ~= N_units_per_tx * D_total = 400`
+
+It is important to note here, however, that Merkle tree usage here is not exactly justified - all unused branches serve no other purpose but to prove to the cold device, that hot side indeed can factor the final hash by the hash of unit metadata record. Furthermore, information content of final signature (32 bytes) is much lower than size of transferred hashes, which hints at certain inefficiency of the scheme here. Below we propose simple strategy that could result in same security level at much lower cost while providing some extra benefits, as well as justification for this optimization approach.
 
 ## 1.4. Coordination
 
-TODO
+Teams have held weekly meetings, working communication through Matrix channel, and have signed formal contract agreements to please the non-crypto regulators.
 
 ## 1.5. Analyze alternative hashing/storage strategies to Merkle tree
 
-TODO
+### Serial hashing
+
+One possible approach to Merkle tree hashing could be sequential hashing scheme. Sequential hashing [could be equivalent](https://doi.org/10.1007/s10207-013-0220-y) to thee hashing, with benefits of lower memory/transfer size requirements and downsides of parallelisation and lower overhead of storage modifications, both of the latter are on no interest to us while the memory overhead in indeed undesireable. This would require `N_hashes_per_tx_sequence = N_units_per_tx + 1 = 11..31` units, or `S_hashes_per_tx_sequence = N_units_per_tx * S_hash ~= 350..1000 bytes` if hash function has some kind of associative properties, or total set of hashes otherwise. Here, ordering of elements is important, and associativity is difficult to achieve together with cryptographic strength.
+
+### Symmetric accumulators
+
+With symmetric accumulators, validity of any metadata unit would be trivial to check in O(1) time and then use the accumulator value in signing.
+
+Typical symmetric accumulators (like Bloom filter based ones) have a very clear memory limitation of `S_accumulator_symm = N_total * log(1/e) bits` where `e` is false positive rate. With parameters listed above, this results in few kB even for small numbers like `e=1/1000`, so no benefits are to be found here.
+
+### Asymmetric accumulators
+
+Typical asymmetric accumulators could be used as proof of unit membership; typical usable accumulator size for 32-byte units is 256 byte. Unfortunately, membership proofs should be computed and sent along with data, with typical proof size on order of 800 bytes.
+
+These sizes all fall within the same range, so there is not much to win by replacing tested-and-tried Merkle trees with these schemes. These sizes are overhead for the protocol features that we do not really need, so below we propose a very lean scheme that has minimum of features and at the same time solves the problem, with almost no extra code introduced.
+
+### Proposed solution
+
+We propose to use Benaloh/de Mare scheme with GF(2^256) as hash function, store accumulator value on chain for signature checks and use it to force hot side to prove, that it can indeed factor a publicly known number into metadata unit hash.
 
