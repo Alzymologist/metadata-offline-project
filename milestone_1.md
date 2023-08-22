@@ -8,18 +8,29 @@ The general idea is to send metadata as modular blocks (**metadata units**) alon
 
 - All metadata units should be atomic hashable objects with their hashes presented in arbitrary order.
 
-- Metadata could be sent in several subsets that could be overlapping and/or sent several times in arbitrary order
+- Metadata could be sent in several subsets that could be overlapping and/or sent several times in arbitrary order.
 
-- Hash function should be already in Substrate/cold device codebase
+- Hash function should be already in Substrate/cold device codebase.
 
-- Hash function should be cryptographically strong.
+- Hash function should be cryptographically strong so that metadata could not be tampered with without trace, at strength comparable to .
 
-- Ordering of metadata blocks should be performed based on their content.
+- Ordering of metadata blocks, if needed, should be performed based on their content; their order in payloads could in general be arbitrary.
 
 - Various levels of metadata stripping should be available per decision of cold device design.
 
+- Sequential stripping stages should be possible.
+
 - Unused variants should be stripped from enum-like objects.
-Note: maybe it could be avoided?
+
+- Typical payload size should be much smaller than 3kB.
+
+- On-chain storage and processing should be minimized (32 bytes used for signature check as one additional step)
+
+- Cold device computation should have low memory, memory access, and processing should be low.
+
+- Cold devices are recommended to check that all received metadata units are valid unit records.
+
+- All non-metadata data that is essential for transaction decoding should be included into authenticity proof as well.
 
 Note that it follows that each metadata unit would be hashed with `blake2` or `blake3`
 
@@ -79,9 +90,11 @@ These sizes all fall within the same range, so there is not much to win by repla
 
 ### Proposed solution
 
-We propose to use Benaloh/de Mare scheme with GF(2^256) as hash function, store accumulator value on chain for signature checks and use it to force hot side to prove, that it can indeed factor a publicly known number into metadata unit hash.
+Typical implementation discussed above have many features useless in our case - such as dynamic modification of accumulator, zero-knowledge, asymmetric key management, etc. In our case, however, only static accumulator with publicly known components is needed. This brings us to the simplest and leanest protocol design:
 
-The basic flow of the protocol thus is following. Accumulator storing all metadata unit hashes is computed on runtime build time and its value is stored on chain (some seeding value with, for example, genesis hash, or out-of-metadata information - such as units - could also be included). When hot client plans to transmit metadata section to cold device, it computes accumulator value excluding hashes of inuts in that metadata section. This value is transmitted alongside metadata section to effectively prove that hot device does indeed use the valid metadata in transmission, and the cold device could use every metadata section packet to compute complete metadata accumulator value and include it into signing sponge function for check on-chain.
+We propose to use Benaloh/de Mare scheme with GF(2^256) as hash function, store accumulator value on chain for signature checks and use it to force hot side to prove to cold device and chain itself, that it can indeed factor a publicly known accumulator into hash of metadata units it transmits.
+
+The basic flow of the protocol thus is following. Accumulator storing all metadata unit hashes is computed on runtime build time and its value is stored on chain (some seeding value with, for example, genesis hash, or out-of-metadata information - such as units - could also be included). When hot client plans to transmit metadata section to cold device, it computes accumulator value excluding hashes of inuts in that metadata section. This value is transmitted alongside metadata section (in header) to effectively prove that hot device does indeed use the valid metadata in transmission, and the cold device could use every metadata section packet to compute complete metadata accumulator value and include it into signing sponge function for check on-chain.
 
 This approach gives maximum freedom of what particular signing design considers desieable amount of metadata to be transmitted - for example, we could even give docs space in metadata units. Sections of metadata could be transmitted repeatedly making paging possible.
 
