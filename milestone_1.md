@@ -1,7 +1,5 @@
 # Milestone 1
 
-THIS IS A DRAFT
-
 ## 1.1. Publish refined requirements for protocol
 
 The general idea is to send metadata as modular blocks (**metadata units**) along with their hashes as proofs of their authenticity from hot device to cold device; in cold device hashes should be included into signature so that the chain consensus would be checking validity of metadata as seen by cold device.
@@ -31,6 +29,8 @@ The general idea is to send metadata as modular blocks (**metadata units**) alon
 - Cold devices are recommended to check that all received metadata units are valid unit records.
 
 - All non-metadata data that is essential for transaction decoding should be included into authenticity proof as well.
+
+- Protocol should be versioned, to have a tool to recall all affected devices in case of critical protocol vulnerability.
 
 Note that it follows that each metadata unit would be hashed with `blake2` or `blake3`
 
