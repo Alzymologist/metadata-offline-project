@@ -2,7 +2,37 @@
 
 ## 1.1. Publish refined requirements for protocol
 
-TODO
+The general idea is to send metadata as modular blocks (**metadata units**) along with their hashes as proofs of their authenticity from hot device to cold device; in cold device hashes should be included into signature so that the chain consensus would be checking validity of metadata as seen by cold device.
+
+- All metadata units should be atomic hashable objects with their hashes presented in arbitrary order.
+
+- Metadata could be sent in several subsets that could be overlapping and/or sent several times in arbitrary order.
+
+- Hash function should be already in Substrate/cold device codebase.
+
+- Hash function should be cryptographically strong so that metadata could not be tampered with without trace, at strength comparable to .
+
+- Ordering of metadata blocks, if needed, should be performed based on their content; their order in payloads could in general be arbitrary.
+
+- Various levels of metadata stripping should be available per decision of cold device design.
+
+- Sequential stripping stages should be possible.
+
+- Unused variants should be stripped from enum-like objects.
+
+- Typical payload size should be much smaller than 3kB.
+
+- On-chain storage and processing should be minimized (32 bytes used for signature check as one additional step)
+
+- Cold device computation should have low memory, memory access, and processing should be low.
+
+- Cold devices are recommended to check that all received metadata units are valid unit records.
+
+- All non-metadata data that is essential for transaction decoding should be included into authenticity proof as well.
+
+- Protocol should be versioned, to have a tool to recall all affected devices in case of critical protocol vulnerability.
+
+Note that it follows that each metadata unit would be hashed with `blake2` or `blake3`
 
 ## 1.2. Publish first draft of mock shortened metadata for parallel development
 
@@ -20,13 +50,41 @@ The only part missing there is information on proofing that might be needed in s
 
 ## 1.3. Estimate shortened metadata size frames based on information theory
 
-TODO
+The current metadata size is around `S_original = 0.5 MB`. Most of this structure is type registry, with other components size being relatively negligible.
+
+Type registry for Westend currently contains around `N_records_original = 800` records, with `N_records_compound = 300` of those being compound enums and the rest `N_records_primitive = 500`. Per variant stripping requirement and with average number of variants being on the order of `N_variants = 10`, this results in `N_units_total = N_records_primitive + N_records_compound * N_variants = 500 + 300 * 10 = 3500` units. Let's use 5000..10000 as safe reasonable pessimistic estimate.
+
+An average unit contains roughly `S_unit = 100 bytes` of data after docs are stripped (as measured in tests).
+
+Reasonable hash size H256 is `S_hash = 32 bytes`. Metadata for hash addressing should generally fit in `S_hash_meta = 1 byte`
+
+Thus, total metadata separated into units would occupy `S_units_total = 500..1000kB` (agrees with original metadata size). Full set of metadata hashes would occupy `S_hashes_total = 150..350 kB`, and when constructed into Merkle tree it would result in 'D_total = 12..13` layers.
+
+Typical metadata for a transaction would reasonably require `N_units_per_tx = 10..30` units.
+
+Transfer of one unit with Merkle tree proof would require transfer of unit its content with S_unit data alongside with its neighbouring Merkle vertex set. Transfer of the first unit would require full depth of leaves D_total to be transferred along with the data; all subsequent units would be diverging from previously sent ones thus resulting in smaller data chunks. With `N_units_per_tx << N_units_total`, we could estimate that point of divergence would be uniformly distributed in `1..D_total`, thus total amount of hashes sent would be roughly `N_hashes_per_tx_merkle = N_units_per_tx * (D_total/2) = 60..200`, or `S_hashes_per_tx_merkle = N_hashes_per_tx_merkle * (S_hash + S_hash_meta) ~= 2000..7000 bytes`. This, however, does not take into account the fact that embedded devices would be struggling to store fractions of hash table simultaneously while computing these hashes, storing metadata units, and decoding transaction. In some implementation, this would result in double transfer requirement (which is also close to worst-case estimate where units are distributed as sparsely as possible in the tree) `N_hashes_per_tx_merkle_max ~= N_units_per_tx * D_total = 400`
+
+It is important to note here, however, that Merkle tree usage here is not exactly justified - all unused branches serve no other purpose but to prove to the cold device, that hot side indeed can factor the final hash by the hash of unit metadata record. Furthermore, information content of final signature (32 bytes) is much lower than size of transferred hashes, which hints at certain inefficiency of the scheme here. Usually this would not justify an optimization step, but in case of hard-to-replace cold signer infrastructure with very limited performance and growing demand of modern Substrate-based systems, we should try to perform an attempt to do at least the most simple optimization - even with modern state, it would be a challenge to fit Merkle proof in already cold signing system, thus optimization has high chance to speed up the process dramatically.
 
 ## 1.4. Coordination
 
-TODO
+Teams have held weekly meetings, working communication through Matrix channel, and have signed formal contract agreements to please the non-crypto regulators.
 
 ## 1.5. Analyze alternative hashing/storage strategies to Merkle tree
 
-TODO
+### Serial hashing
+
+One possible approach to Merkle tree hashing could be sequential hashing scheme. Sequential hashing [could be equivalent](https://doi.org/10.1007/s10207-013-0220-y) to thee hashing, with benefits of lower memory/transfer size requirements and downsides of parallelisation and lower overhead of storage modifications, both of the latter are on no interest to us while the memory overhead in indeed undesireable. This would require `N_hashes_per_tx_sequence = N_units_per_tx + 1 = 11..31` units, or `S_hashes_per_tx_sequence = N_units_per_tx * S_hash ~= 350..1000 bytes` if hash function has some kind of associative properties, or total set of hashes otherwise. Here, ordering of elements is important, and associativity is difficult to achieve together with cryptographic strength.
+
+### Symmetric accumulators
+
+With symmetric accumulators, validity of any metadata unit would be trivial to check in O(1) time and then use the accumulator value in signing.
+
+Typical symmetric accumulators (like Bloom filter based ones) have a very clear memory limitation of `S_accumulator_symm = N_total * log(1/e) bits` where `e` is false positive rate. With parameters listed above, this results in few kB even for small numbers like `e=1/1000`, so no benefits are to be found here.
+
+### Asymmetric accumulators
+
+Typical asymmetric accumulators could be used as proof of unit membership; typical usable accumulator size for 32-byte units is 256 byte. Unfortunately, membership proofs should be computed and sent along with data, with typical proof size on order of 800 bytes. Fortunately, there is a batch witness algorithm, reducing overhead to size of witness multiplied by number of pages that could be stored in memory simultaneously (or at least their hashes). There are two developed schemes for these accumulators: RSA-based accumulators, and bilinear accumulators based on KZG. These schemes require initial setup with some potential backdoor material to be securely generated and trustfully destroyed, or generated and used in a distributed way so that no party could obtain key secret without all other parties revealing their parts.
+
+We propose to build proof-of-concept testbenches within the next milestone to compare all 3 feasible schemes and decide which would give the best trade-off between data transfer overhead, storage requirements, computational complexity, and ease of setup.
 
