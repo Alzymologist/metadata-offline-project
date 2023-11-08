@@ -24,5 +24,3 @@ Merkle tree proof was chosen over other accumulators after some prototyping due 
 ## 2.4. Early implementation of a generic app with metadata support
 
 The early implementation was demonstrated on Sub0 event.
-
-TODO
