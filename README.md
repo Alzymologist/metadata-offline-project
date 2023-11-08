@@ -12,3 +12,4 @@ Kampela offline signer (partial) implementation [hot side](https://github.com/Ka
 
 [Milestone 1](milestone_1.md)
 
+[Milestone 2](milestone_2.md)
